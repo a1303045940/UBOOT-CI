@@ -110,7 +110,7 @@ jobs:
           find ./ -maxdepth 3 -type f -iregex ".*\(txt\|sh\)$" -exec dos2unix {} \; -exec chmod +x {} \;
 
           echo "WRT_TYPE_7981=$TYPE_7981" >> $GITHUB_ENV
-          echo "WRT_TYPE_7986=$TYPE_7986" >> $GITHUB_ENV
+          #echo "WRT_TYPE_7986=$TYPE_7986" >> $GITHUB_ENV
 
       - name: Compile Firmware
         run: |
@@ -161,4 +161,4 @@ jobs:
             MTK版本：${{matrix.WRT_MTK}}
 
             7981设备：${{env.WRT_TYPE_7981}}
-            7986设备：${{env.WRT_TYPE_7986}}
+            #7986设备：${{env.WRT_TYPE_7986}}
