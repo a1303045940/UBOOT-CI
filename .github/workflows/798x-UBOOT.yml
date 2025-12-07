@@ -96,7 +96,7 @@ jobs:
           printf "%s\n" "${lines_map[@]}" | sort > ./Uboots.txt
 
           # 生成 TYPE_7981 和 TYPE_7986（按 SOC 分类，BOARD 大写 + 排序）
-          for soc in 7981 7986; do
+          for soc in 7981; do
             boards=$(awk -v s="SOC=mt$soc" '$0 ~ s {
               for (i=1; i<=NF; i++) if ($i ~ /^BOARD=/) {
                 split($i, a, "="); print toupper(a[2]);
