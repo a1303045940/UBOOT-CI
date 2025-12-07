@@ -34,7 +34,7 @@ jobs:
     needs: cleanup
     strategy:
       fail-fast: false
-      #max-parallel: 4
+      max-parallel: 4
       matrix:
         WRT_ATF: [atf-20220606-637ba581b]
         WRT_MTK: [uboot-mtk-20230718-09eda825]
