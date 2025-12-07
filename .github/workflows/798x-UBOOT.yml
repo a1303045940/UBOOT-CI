@@ -10,7 +10,7 @@ on:
 env:
   GITHUB_TOKEN: ${{secrets.GH_TOKEN}}
   WRT_TARGET: MTK-798x
-  WRT_REPO: https://github.com/ddyjyj/bl-mt798x.git
+  WRT_REPO: https://github.com/a1303045940/bl-mt798x-oss.git
   WRT_BRANCH: master
 
 permissions: write-all
