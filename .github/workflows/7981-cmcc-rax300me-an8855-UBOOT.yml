@@ -93,7 +93,7 @@ jobs:
           # ================= 修改开始 =================
           # 原代码：grep -iE 'mt7981_' | grep -ivE 'rfb|fpga'
           # 修改为：精准匹配 cmcc_rax3000me_an8855 (注意这里通常是用下划线)
-          done < <(find ./wrt/uboot-mtk-*/configs -type f -name 'mt798*defconfig' | grep -iE 'cmcc_rax3000me_an8855')
+          done < <(find ./wrt/uboot-mtk-*/configs -type f -name 'mt798*defconfig' | grep -iE 'cmcc-rax3000me-an8855')
           # ================= 修改结束 =================
 
           # 输出 Uboots.txt
