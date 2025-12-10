@@ -80,38 +80,57 @@ jobs:
           ATF_PATH="./wrt/${{matrix.WRT_ATF}}"
           
           echo "=== Debug: Starting File Preparation ==="
+          
+          # 定义目标文件名（你确认的名字）
+          TARGET_DEFCONFIG_NAME="mt7981_rax3000me_an8855_defconfig"
 
-          # 2. 复制 Defconfig (配置文件)
-          # 找到源码里的 defconfig 并复制到 U-Boot 和 ATF 目录
-          SRC_CONFIG=$(find ./wrt -type f -name "mt7981_rax3000me_an8855_defconfig" | head -n 1)
-          if [ -n "$SRC_CONFIG" ]; then
-             echo "✅ Found config: $SRC_CONFIG"
-             cp -f "$SRC_CONFIG" "$UBOOT_PATH/configs/"
-             # ATF 也是一样的配置名
-             cp -f "$SRC_CONFIG" "$ATF_PATH/configs/" 2>/dev/null || true
+          # -------------------------------------------------------
+          # 2. 查找配置文件 (优先找当前仓库，再找源码目录)
+          # -------------------------------------------------------
+          echo "🔍 Searching for $TARGET_DEFCONFIG_NAME..."
+          
+          # 尝试1: 在当前工作区查找 (以防你把它传到了 UBOOT-CI 仓库里)
+          LOCAL_CONFIG=$(find . -maxdepth 2 -type f -name "$TARGET_DEFCONFIG_NAME" | head -n 1)
+          
+          # 尝试2: 在克隆的 wrt 源码目录查找
+          WRT_CONFIG=$(find ./wrt -type f -name "$TARGET_DEFCONFIG_NAME" | head -n 1)
+
+          if [ -n "$LOCAL_CONFIG" ]; then
+             echo "✅ Found config in CURRENT REPO: $LOCAL_CONFIG"
+             SRC_CONFIG="$LOCAL_CONFIG"
+          elif [ -n "$WRT_CONFIG" ]; then
+             echo "✅ Found config in CLONED SOURCE: $WRT_CONFIG"
+             SRC_CONFIG="$WRT_CONFIG"
           else
-             echo "❌ Error: Config file mt7981_rax3000me_an8855_defconfig NOT FOUND!"
-             # 列出所有配置文件以便调试
-             find ./wrt -name "*rax3000*"
+             echo "❌ Error: Config file '$TARGET_DEFCONFIG_NAME' NOT FOUND anywhere!"
+             echo "📂 Listing all config files in ./wrt for debugging:"
+             find ./wrt -name "*defconfig" | grep "mt7981" || echo "No mt7981 configs found"
              exit 1
           fi
 
-          # 3. 复制并重命名 DTS (关键修复步骤！！！)
-          # Defconfig 里配置的是: CONFIG_DEFAULT_DEVICE_TREE="mt7981-cmcc-rax3000me-an8855"
-          # 所以我们必须生成一个文件名完全一致的文件
-          TARGET_DTS_NAME="mt7981-cmcc-rax3000me-an8855.dts"
-          TARGET_DTS_PATH="$UBOOT_PATH/arch/arm/dts/$TARGET_DTS_NAME"
+          # 复制配置到 U-Boot 和 ATF
+          cp -f "$SRC_CONFIG" "$UBOOT_PATH/configs/$TARGET_DEFCONFIG_NAME"
+          cp -f "$SRC_CONFIG" "$ATF_PATH/configs/$TARGET_DEFCONFIG_NAME" 2>/dev/null || true
+
+          # -------------------------------------------------------
+          # 3. 强制生成匹配的 DTS 文件 (解决编译报错的核心)
+          # -------------------------------------------------------
+          # Defconfig 里写死了 CONFIG_DEFAULT_DEVICE_TREE="mt7981-cmcc-rax3000me-an8855"
+          # 所以我们必须生成一个叫这个名字的 DTS 文件
+          REQUIRED_DTS_NAME="mt7981-cmcc-rax3000me-an8855"
+          TARGET_DTS_PATH="$UBOOT_PATH/arch/arm/dts/$REQUIRED_DTS_NAME.dts"
           
-          # 在源码中模糊搜索包含 rax3000me-an8855 的 dts 文件
-          SRC_DTS=$(find ./wrt -type f -name "*rax3000me-an8855.dts" | head -n 1)
+          echo "🔨 Preparing DTS file: $REQUIRED_DTS_NAME.dts"
+          
+          # 尝试找一个现成的类似 DTS 复制过去
+          SRC_DTS=$(find ./wrt -type f -name "*rax3000me*an8855*.dts" | head -n 1)
           
           if [ -n "$SRC_DTS" ]; then
-            echo "✅ Found source DTS: $SRC_DTS"
-            echo "👉 Copying and renaming to: $TARGET_DTS_PATH"
+            echo "👉 Copying content from: $SRC_DTS"
             cp -f "$SRC_DTS" "$TARGET_DTS_PATH"
           else
-            echo "⚠️ Source DTS not found! Generating FALLBACK DTS..."
-            # 如果实在找不到，生成一个最基础的防止报错（不推荐，但能让编译跑完）
+            echo "⚠️ No source DTS found. Generating a GENERIC one to force build success..."
+            # 生成一个最小化可用的 DTS，防止编译器找不到文件报错
             cat > "$TARGET_DTS_PATH" <<EOF
           // SPDX-License-Identifier: GPL-2.0
           /dts-v1/;
@@ -122,18 +141,24 @@ jobs:
           EOF
           fi
 
-          # 4. 直接生成编译任务列表，不再依赖自动搜索
-          # 这样能确保参数绝对正确，不会因为文件名解析错误而跳过
+          # -------------------------------------------------------
+          # 4. 生成编译任务
+          # -------------------------------------------------------
+          # 这里的 BOARD 参数对应文件名去掉 _defconfig 后的部分，或者直接硬编码
+          # 注意：build.sh 会去 configs/ 目录下找 <SOC>_<BOARD>_defconfig
+          # 所以我们必须保证 BOARD 参数和文件名能对上
+          
+          # 文件名: mt7981_rax3000me_an8855_defconfig
+          # 拆解 -> SOC=mt7981, BOARD=rax3000me_an8855
+          
           echo "SOC=mt7981 BOARD=rax3000me_an8855 ./build.sh" > ./Uboots.txt
           
-          # 设置环境变量供后续步骤显示
           echo "WRT_TYPE_7981=RAX3000ME-AN8855" >> $GITHUB_ENV
-          
-          # 赋予脚本执行权限
           mv -f Uboots.txt Uboots.sh
           chmod +x Uboots.sh
           
           echo "=== Debug: Preparation Complete ==="
+
 
       - name: Compile Firmware
         run: |
