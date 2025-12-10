@@ -1,4 +1,4 @@
-name: 7981-rax300me-an8855-UBOOT
+name: 新MT7981-rax300me-an8855-UBOOT
 
 on:
   workflow_dispatch:
