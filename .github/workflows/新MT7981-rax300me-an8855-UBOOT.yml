@@ -1,10 +1,6 @@
-name: 新MT7981-rax300me-an8855-UBOOT
+name: 新7981-rax300me-an8855-UBOOT
 
 on:
-  # 自动编译：每周日早上4点
-  # schedule:
-  #   - cron: 0 20 * * 0
-  # 手动编译
   workflow_dispatch:
 
 env:
@@ -17,7 +13,8 @@ permissions: write-all
 
 jobs:
   cleanup:
-    runs-on: ubuntu-latest
+    # ！！！必须是 ubuntu-20.04，否则必报 FIP 错误 ！！！
+    runs-on: ubuntu-20.04
     steps:
       - name: Delete old Releases and Workflows
         uses: ophub/delete-releases-workflows@main
@@ -30,7 +27,8 @@ jobs:
           workflows_keep_day: 2
 
   build:
-    runs-on: ubuntu-latest
+    # ！！！必须是 ubuntu-20.04，否则必报 FIP 错误 ！！！
+    runs-on: ubuntu-20.04
     needs: cleanup
     strategy:
       fail-fast: false
@@ -46,12 +44,7 @@ jobs:
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
-          sudo -E apt -yqq purge firefox
           sudo -E apt -yqq update
-          sudo -E apt -yqq full-upgrade
-          sudo -E apt -yqq autoremove --purge
-          sudo -E apt -yqq autoclean
-          sudo -E apt -yqq clean
           sudo -E apt -yqq install dos2unix bison build-essential device-tree-compiler flex gcc-aarch64-linux-gnu libssl-dev qemu-user-static
           sudo -E systemctl daemon-reload
           sudo -E timedatectl set-timezone "Asia/Shanghai"
@@ -72,98 +65,204 @@ jobs:
 
       - name: Compile Prepare
         run: |
-          # 1. 设置变量
           sed -i "5s/UBOOT_DIR=.*/UBOOT_DIR=${{matrix.WRT_MTK}}/" ./wrt/build.sh
           sed -i "7s/ATF_DIR=.*/ATF_DIR=${{matrix.WRT_ATF}}/" ./wrt/build.sh
 
           UBOOT_PATH="./wrt/${{matrix.WRT_MTK}}"
           ATF_PATH="./wrt/${{matrix.WRT_ATF}}"
           
-          # 定义我们必须有的目标文件名 (你的 defconfig)
-          TARGET_DEFCONFIG_NAME="mt7981_rax3000me_an8855_defconfig"
-          # 定义配套的 DTS 名字 (根据该 config 里的定义)
-          # 注意：如果下面使用了替补配置，我们会用 sed 修改配置里的 DTS 指向这个名字
+          echo "=== Debug: Starting File Generation ==="
+          
+          # -------------------------------------------------------
+          # 1. 强制写入正确的独立版 DTS
+          # -------------------------------------------------------
           TARGET_DTS_NAME="mt7981-cmcc-rax3000me-an8855"
-
-          echo "=== Debug: Starting File Preparation ==="
-          
-          # -------------------------------------------------------
-          # 2. 强力查找或生成 Config 文件
-          # -------------------------------------------------------
-          echo "🔍 Searching for $TARGET_DEFCONFIG_NAME..."
-          
-          # 尝试 A: 精确查找
-          SRC_CONFIG=$(find ./wrt -type f -name "$TARGET_DEFCONFIG_NAME" | head -n 1)
-          
-          # 尝试 B: 模糊查找 (只要包含 rax3000 且包含 7981)
-          if [ -z "$SRC_CONFIG" ]; then
-             SRC_CONFIG=$(find ./wrt -type f -name "*mt7981*rax3000*defconfig" | head -n 1)
-          fi
-
-          if [ -n "$SRC_CONFIG" ]; then
-             echo "✅ Found existing config: $SRC_CONFIG"
-             cp -f "$SRC_CONFIG" "$UBOOT_PATH/configs/$TARGET_DEFCONFIG_NAME"
-             cp -f "$SRC_CONFIG" "$ATF_PATH/configs/$TARGET_DEFCONFIG_NAME" 2>/dev/null || true
-          else
-             echo "⚠️ Config not found! Using 'mt7981_360t7_defconfig' as a template..."
-             # 找一个现成的 360T7 配置作为模板
-             TEMPLATE_CONFIG=$(find ./wrt -type f -name "*360t7*defconfig" | head -n 1)
-             if [ -z "$TEMPLATE_CONFIG" ]; then
-                echo "❌ Fatal: Could not find ANY mt7981 config to use as template!"
-                find ./wrt -name "*defconfig"
-                exit 1
-             fi
-             
-             # 复制模板并重命名
-             cp -f "$TEMPLATE_CONFIG" "$UBOOT_PATH/configs/$TARGET_DEFCONFIG_NAME"
-             cp -f "$TEMPLATE_CONFIG" "$ATF_PATH/configs/$TARGET_DEFCONFIG_NAME" 2>/dev/null || true
-             
-             # 修改模板里的 DTS 指向，让它指向我们的 rax3000me
-             echo "🔧 Patching config file to use proper DTS..."
-             sed -i 's/CONFIG_DEFAULT_DEVICE_TREE=.*/CONFIG_DEFAULT_DEVICE_TREE="'"$TARGET_DTS_NAME"'"/' "$UBOOT_PATH/configs/$TARGET_DEFCONFIG_NAME"
-             sed -i 's/CONFIG_DEFAULT_DEVICE_TREE=.*/CONFIG_DEFAULT_DEVICE_TREE="'"$TARGET_DTS_NAME"'"/' "$ATF_PATH/configs/$TARGET_DEFCONFIG_NAME" 2>/dev/null || true
-          fi
-
-          # -------------------------------------------------------
-          # 3. 强力准备 DTS 文件
-          # -------------------------------------------------------
           TARGET_DTS_PATH="$UBOOT_PATH/arch/arm/dts/$TARGET_DTS_NAME.dts"
           
-          echo "🔨 Preparing DTS file: $TARGET_DTS_NAME.dts"
+          echo "📝 Generating $TARGET_DTS_NAME.dts..."
           
-          # 尝试找源码里本来就有的 rax3000 dts
-          SRC_DTS=$(find ./wrt -type f -name "*rax3000*an8855*.dts" | head -n 1)
-          
-          if [ -n "$SRC_DTS" ]; then
-            echo "👉 Copying content from: $SRC_DTS"
-            cp -f "$SRC_DTS" "$TARGET_DTS_PATH"
-          else
-            echo "⚠️ No source DTS found. Generating a GENERIC one to force build..."
-            # 生成一个最小化 DTS，防止报错
-            cat > "$TARGET_DTS_PATH" <<EOF
+          cat > "$TARGET_DTS_PATH" <<EOF
           // SPDX-License-Identifier: GPL-2.0
           /dts-v1/;
-          #include "mt7981-cmcc-rax3000m.dts"
+          #include "mt7981.dtsi"
+          #include <dt-bindings/gpio/gpio.h>
+
           / {
+            #address-cells = <1>;
+            #size-cells = <1>;
             model = "mt7981-cmcc-rax3000me-an8855";
+            compatible = "mediatek,mt7981", "mediatek,mt7981-rfb";
+
+            chosen {
+              stdout-path = &uart0;
+              tick-timer = &timer0;
+            };
+
+            config {
+              bootcmd = "mtkboardboot";
+              blink_led = "blue:system";
+              system_led = "green:system";
+            };
+
+            gpio-keys {
+              compatible = "gpio-keys";
+              reset-button {
+                label = "reset";
+                gpios = <&gpio 1 GPIO_ACTIVE_LOW>;
+              };
+              mesh-button {
+                label = "mesh";
+                gpios = <&gpio 0 GPIO_ACTIVE_LOW>;
+              };
+            };
+
+            leds {
+              compatible = "gpio-leds";
+              led@0 {
+                label = "red:system";
+                gpios = <&gpio 35 GPIO_ACTIVE_LOW>;
+              };
+              led@1 {
+                label = "green:system";
+                gpios = <&gpio 9 GPIO_ACTIVE_LOW>;
+              };
+              led@2 {
+                label = "blue:system";
+                gpios = <&gpio 12 GPIO_ACTIVE_LOW>;
+              };
+            };
+          };
+
+          &uart0 {
+            status = "okay";
+          };
+
+          &eth {
+            status = "okay";
+            mediatek,gmac-id = <0>;
+            phy-mode = "sgmii";
+            mediatek,switch = "an8855";
+            reset-gpios = <&gpio 39 GPIO_ACTIVE_HIGH>;
+            fixed-link {
+              speed = <1000>;
+              full-duplex;
+            };
+          };
+
+          &pinctrl {
+            spi_flash_pins: spi0-pins-func-1 {
+              mux {
+                function = "flash";
+                groups = "spi0", "spi0_wp_hold";
+              };
+              conf-pu {
+                pins = "SPI0_CS", "SPI0_HOLD", "SPI0_WP";
+                drive-strength = <MTK_DRIVE_8mA>;
+                bias-pull-up = <MTK_PUPD_SET_R1R0_11>;
+              };
+              conf-pd {
+                pins = "SPI0_CLK", "SPI0_MOSI", "SPI0_MISO";
+                drive-strength = <MTK_DRIVE_8mA>;
+                bias-pull-down = <MTK_PUPD_SET_R1R0_11>;
+              };
+            };
+          };
+
+          &spi0 {
+            #address-cells = <1>;
+            #size-cells = <0>;
+            pinctrl-names = "default";
+            pinctrl-0 = <&spi_flash_pins>;
+            status = "okay";
+            must_tx;
+            enhance_timing;
+            dma_ext;
+            ipm_design;
+            support_quad;
+            tick_dly = <2>;
+            sample_sel = <0>;
+            spi_nand@0 {
+              compatible = "spi-nand";
+              reg = <0>;
+              spi-max-frequency = <52000000>;
+            };
+          };
+          
+          &watchdog {
+            status = "disabled";
           };
           EOF
-          fi
+          
+          # -------------------------------------------------------
+          # 2. 强制写入匹配的 Defconfig
+          # -------------------------------------------------------
+          TARGET_DEFCONFIG_NAME="mt7981_rax3000me_an8855_defconfig"
+          echo "📝 Generating $TARGET_DEFCONFIG_NAME..."
+          
+          cat > "$UBOOT_PATH/configs/$TARGET_DEFCONFIG_NAME" <<EOF
+          CONFIG_ARM=y
+          CONFIG_POSITION_INDEPENDENT=y
+          CONFIG_ARCH_MEDIATEK=y
+          CONFIG_TEXT_BASE=0x41e00000
+          CONFIG_SYS_MALLOC_F_LEN=0x4000
+          CONFIG_NR_DRAM_BANKS=1
+          CONFIG_ENV_SIZE=0x40000
+          CONFIG_ENV_OFFSET=0x400000
+          CONFIG_DEFAULT_DEVICE_TREE="$TARGET_DTS_NAME"
+          CONFIG_SPL_TEXT_BASE=0x201000
+          CONFIG_TARGET_MT7981=y
+          CONFIG_DEBUG_UART_BASE=0x11002000
+          CONFIG_DEBUG_UART_CLOCK=40000000
+          CONFIG_SYS_LOAD_ADDR=0x46000000
+          CONFIG_DEBUG_UART=y
+          CONFIG_FIT=y
+          CONFIG_BOOTDELAY=3
+          CONFIG_DEFAULT_FDT_FILE="$TARGET_DTS_NAME"
+          CONFIG_SYS_CONSOLE_IS_IN_ENV=y
+          CONFIG_LOGLEVEL=7
+          CONFIG_HUSH_PARSER=y
+          CONFIG_SYS_PROMPT="MT7981> "
+          CONFIG_CMD_BOOTMENU=y
+          CONFIG_CMD_MMC=y
+          CONFIG_CMD_PART=y
+          CONFIG_CMD_PING=y
+          CONFIG_CMD_DHCP=y
+          CONFIG_CMD_FAT=y
+          CONFIG_CMD_FS_GENERIC=y
+          CONFIG_ENV_IS_IN_MMC=y
+          CONFIG_SYS_RELOC_GD_ENV_ADDR=y
+          CONFIG_NET_RANDOM_ETHADDR=y
+          CONFIG_REGMAP=y
+          CONFIG_SYSCON=y
+          CONFIG_CLK=y
+          CONFIG_MMC=y
+          CONFIG_DM_MMC=y
+          CONFIG_MMC_MTK=y
+          CONFIG_PHY_FIXED=y
+          CONFIG_MEDIATEK_ETH=y
+          CONFIG_PINCTRL=y
+          CONFIG_PINCONF=y
+          CONFIG_PINCTRL_MT7981=y
+          CONFIG_POWER_DOMAIN=y
+          CONFIG_MTK_POWER_DOMAIN=y
+          CONFIG_DM_REGULATOR=y
+          CONFIG_DM_REGULATOR_FIXED=y
+          CONFIG_DM_SERIAL=y
+          CONFIG_MTK_SERIAL=y
+          CONFIG_HEXDUMP=y
+          EOF
+          
+          # 复制 Defconfig 到 ATF 目录 (防止 ATF 找不到)
+          cp -f "$UBOOT_PATH/configs/$TARGET_DEFCONFIG_NAME" "$ATF_PATH/configs/"
 
           # -------------------------------------------------------
-          # 4. 生成任务列表
+          # 3. 生成编译任务
           # -------------------------------------------------------
-          # 此时我们确保了 configs/ 下有名为 mt7981_rax3000me_an8855_defconfig 的文件
-          # 所以参数必须严格对应文件名
           echo "SOC=mt7981 BOARD=rax3000me_an8855 ./build.sh" > ./Uboots.txt
           
           echo "WRT_TYPE_7981=RAX3000ME-AN8855" >> $GITHUB_ENV
           mv -f Uboots.txt Uboots.sh
           chmod +x Uboots.sh
-          
-          echo "=== Debug: Preparation Complete ==="
-
-
 
       - name: Compile Firmware
         run: |
@@ -200,15 +299,5 @@ jobs:
           tag_name: ${{env.WRT_AUTHOR}}_${{env.WRT_VER}}_${{env.WRT_DATE}}
           files: ./wrt/upload/*.*
           body: |
-            这是个平台固件包，内含多个设备！
-            请注意选择你需要的设备固件！
-            不要问，刷就完事了！
-
-            平台：${{env.WRT_TARGET}}
-            源码：${{env.WRT_REPO}}
-            分支：${{env.WRT_BRANCH}}
-
-            ATF版本：${{matrix.WRT_ATF}}
-            MTK版本：${{matrix.WRT_MTK}}
-
+            平台固件包
             7981设备：${{env.WRT_TYPE_7981}}
