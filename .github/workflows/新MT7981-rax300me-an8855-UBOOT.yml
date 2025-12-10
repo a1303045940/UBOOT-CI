@@ -143,7 +143,7 @@ jobs:
             cat > "$TARGET_DTS_PATH" <<EOF
           // SPDX-License-Identifier: GPL-2.0
           /dts-v1/;
-          #include "mt7981.dtsi"
+          #include "mt7981-cmcc-rax3000m.dts"
           / {
             model = "mt7981-cmcc-rax3000me-an8855";
           };
