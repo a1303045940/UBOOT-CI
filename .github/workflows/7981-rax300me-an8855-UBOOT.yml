@@ -75,35 +75,7 @@ jobs:
         run: |
           sed -i "5s/UBOOT_DIR=.*/UBOOT_DIR=${{matrix.WRT_MTK}}/" ./wrt/build.sh
           sed -i "7s/ATF_DIR=.*/ATF_DIR=${{matrix.WRT_ATF}}/" ./wrt/build.sh
-
-          # -------------------------------------------------------
-          # 🟢【调试新增】检查关键的 DTS 文件是否存在，并打印内容
-          # -------------------------------------------------------
-          echo "=== Debug: Checking DTS file status ==="
-          TARGET_DTS="./wrt/uboot-mtk-20230718-09eda825/arch/arm/dts/mt7981-cmcc-rax3000me-an8855.dts"
-          
-          if [ -f "$TARGET_DTS" ]; then
-            echo "✅ DTS file exists: $TARGET_DTS"
-            echo "--- Content Start ---"
-            cat "$TARGET_DTS"
-            echo "--- Content End ---"
-          else
-            echo "❌ DTS file MISSING! Creating it manually..."
-            # 强制创建文件，确保万无一失
-            cat > "$TARGET_DTS" <<EOF
-          // SPDX-License-Identifier: GPL-2.0
-          /dts-v1/;
-          #include "mt7981-cmcc-rax3000m.dts"
-          / {
-            model = "mt7981-cmcc-rax3000me-an8855";
-          };
-          &eth {
-            mediatek,switch = "an8855";
-          };
-          EOF
-            echo "✅ DTS file created successfully."
-          fi
-          # -------------------------------------------------------
+          ls -1 wrt/uboot-mtk-*/arch/arm/dts/mt7981*rax3000*
 
           # 收集 uboot 配置并生成 Uboots.txt
           declare -A lines_map
