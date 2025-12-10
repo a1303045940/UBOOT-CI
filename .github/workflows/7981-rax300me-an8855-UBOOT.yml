@@ -1,4 +1,4 @@
-name: 7981-cmcc-rax300me-an8855-UBOOT
+name: 7981-rax300me-an8855-UBOOT
 
 on:
   #自动编译：每周日早上4点
@@ -76,6 +76,11 @@ jobs:
           sed -i "5s/UBOOT_DIR=.*/UBOOT_DIR=${{matrix.WRT_MTK}}/" ./wrt/build.sh
           sed -i "7s/ATF_DIR=.*/ATF_DIR=${{matrix.WRT_ATF}}/" ./wrt/build.sh
 
+          # 【调试步骤】先列出所有可能的文件，看看文件名到底长啥样
+          echo "=== Debug: List all defconfig files ==="
+          find ./wrt/uboot-mtk-*/configs -type f -name 'mt798*defconfig'
+          echo "======================================="
+
           # 收集 uboot 配置并生成 Uboots.txt
           declare -A lines_map
           while IFS= read -r f; do
@@ -90,16 +95,23 @@ jobs:
             elif [[ -z "${lines_map[$key]}" ]]; then
               lines_map["$key"]="SOC=$soc BOARD=$board ./build.sh"
             fi
-          # ================= 修改开始 =================
-          # 原代码：grep -iE 'mt7981_' | grep -ivE 'rfb|fpga'
-          # 修改为：精准匹配 cmcc_rax3000me_an8855 (注意这里通常是用下划线)
-          done < <(find ./wrt/uboot-mtk-*/configs -type f -name 'mt798*defconfig' | grep -iE 'cmcc-rax3000me-an8855')
-          # ================= 修改结束 =================
+          # 【修正点】使用宽泛匹配 'rax3000'，确保能命中文件
+          # 务必不要用 explicit 的全名，除非你确定它在 'Debug' 输出里存在
+          done < <(find ./wrt/uboot-mtk-*/configs -type f -name 'mt798*defconfig' | grep -i 'rax3000')
+          
+          # 【调试检查】如果 map 为空，直接报错退出，不要假装成功
+          if [ ${#lines_map[@]} -eq 0 ]; then
+            echo "❌ Error: No matching uboot configs found!"
+            exit 1
+          fi
 
           # 输出 Uboots.txt
           printf "%s\n" "${lines_map[@]}" | sort > ./Uboots.txt
+          
+          # 打印生成的任务列表供检查
+          cat ./Uboots.txt
 
-          # 生成 TYPE_7981 和 TYPE_7986（按 SOC 分类，BOARD 大写 + 排序）
+          # 生成 TYPE_7981（按 SOC 分类，BOARD 大写 + 排序）
           for soc in 7981; do
             boards=$(awk -v s="SOC=mt$soc" '$0 ~ s {
               for (i=1; i<=NF; i++) if ($i ~ /^BOARD=/) {
@@ -114,6 +126,7 @@ jobs:
           find ./ -maxdepth 3 -type f -iregex ".*\(txt\|sh\)$" -exec dos2unix {} \; -exec chmod +x {} \;
 
           echo "WRT_TYPE_7981=$TYPE_7981" >> $GITHUB_ENV
+
 
 
       - name: Compile Firmware
