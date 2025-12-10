@@ -72,65 +72,74 @@ jobs:
 
       - name: Compile Prepare
         run: |
-          # 1. 设置编译目录变量
+          # 1. 设置变量
           sed -i "5s/UBOOT_DIR=.*/UBOOT_DIR=${{matrix.WRT_MTK}}/" ./wrt/build.sh
           sed -i "7s/ATF_DIR=.*/ATF_DIR=${{matrix.WRT_ATF}}/" ./wrt/build.sh
 
           UBOOT_PATH="./wrt/${{matrix.WRT_MTK}}"
           ATF_PATH="./wrt/${{matrix.WRT_ATF}}"
           
+          # 定义我们必须有的目标文件名 (你的 defconfig)
+          TARGET_DEFCONFIG_NAME="mt7981_rax3000me_an8855_defconfig"
+          # 定义配套的 DTS 名字 (根据该 config 里的定义)
+          # 注意：如果下面使用了替补配置，我们会用 sed 修改配置里的 DTS 指向这个名字
+          TARGET_DTS_NAME="mt7981-cmcc-rax3000me-an8855"
+
           echo "=== Debug: Starting File Preparation ==="
           
-          # 定义目标文件名（你确认的名字）
-          TARGET_DEFCONFIG_NAME="mt7981_rax3000me_an8855_defconfig"
-
           # -------------------------------------------------------
-          # 2. 查找配置文件 (优先找当前仓库，再找源码目录)
+          # 2. 强力查找或生成 Config 文件
           # -------------------------------------------------------
           echo "🔍 Searching for $TARGET_DEFCONFIG_NAME..."
           
-          # 尝试1: 在当前工作区查找 (以防你把它传到了 UBOOT-CI 仓库里)
-          LOCAL_CONFIG=$(find . -maxdepth 2 -type f -name "$TARGET_DEFCONFIG_NAME" | head -n 1)
+          # 尝试 A: 精确查找
+          SRC_CONFIG=$(find ./wrt -type f -name "$TARGET_DEFCONFIG_NAME" | head -n 1)
           
-          # 尝试2: 在克隆的 wrt 源码目录查找
-          WRT_CONFIG=$(find ./wrt -type f -name "$TARGET_DEFCONFIG_NAME" | head -n 1)
-
-          if [ -n "$LOCAL_CONFIG" ]; then
-             echo "✅ Found config in CURRENT REPO: $LOCAL_CONFIG"
-             SRC_CONFIG="$LOCAL_CONFIG"
-          elif [ -n "$WRT_CONFIG" ]; then
-             echo "✅ Found config in CLONED SOURCE: $WRT_CONFIG"
-             SRC_CONFIG="$WRT_CONFIG"
-          else
-             echo "❌ Error: Config file '$TARGET_DEFCONFIG_NAME' NOT FOUND anywhere!"
-             echo "📂 Listing all config files in ./wrt for debugging:"
-             find ./wrt -name "*defconfig" | grep "mt7981" || echo "No mt7981 configs found"
-             exit 1
+          # 尝试 B: 模糊查找 (只要包含 rax3000 且包含 7981)
+          if [ -z "$SRC_CONFIG" ]; then
+             SRC_CONFIG=$(find ./wrt -type f -name "*mt7981*rax3000*defconfig" | head -n 1)
           fi
 
-          # 复制配置到 U-Boot 和 ATF
-          cp -f "$SRC_CONFIG" "$UBOOT_PATH/configs/$TARGET_DEFCONFIG_NAME"
-          cp -f "$SRC_CONFIG" "$ATF_PATH/configs/$TARGET_DEFCONFIG_NAME" 2>/dev/null || true
+          if [ -n "$SRC_CONFIG" ]; then
+             echo "✅ Found existing config: $SRC_CONFIG"
+             cp -f "$SRC_CONFIG" "$UBOOT_PATH/configs/$TARGET_DEFCONFIG_NAME"
+             cp -f "$SRC_CONFIG" "$ATF_PATH/configs/$TARGET_DEFCONFIG_NAME" 2>/dev/null || true
+          else
+             echo "⚠️ Config not found! Using 'mt7981_360t7_defconfig' as a template..."
+             # 找一个现成的 360T7 配置作为模板
+             TEMPLATE_CONFIG=$(find ./wrt -type f -name "*360t7*defconfig" | head -n 1)
+             if [ -z "$TEMPLATE_CONFIG" ]; then
+                echo "❌ Fatal: Could not find ANY mt7981 config to use as template!"
+                find ./wrt -name "*defconfig"
+                exit 1
+             fi
+             
+             # 复制模板并重命名
+             cp -f "$TEMPLATE_CONFIG" "$UBOOT_PATH/configs/$TARGET_DEFCONFIG_NAME"
+             cp -f "$TEMPLATE_CONFIG" "$ATF_PATH/configs/$TARGET_DEFCONFIG_NAME" 2>/dev/null || true
+             
+             # 修改模板里的 DTS 指向，让它指向我们的 rax3000me
+             echo "🔧 Patching config file to use proper DTS..."
+             sed -i 's/CONFIG_DEFAULT_DEVICE_TREE=.*/CONFIG_DEFAULT_DEVICE_TREE="'"$TARGET_DTS_NAME"'"/' "$UBOOT_PATH/configs/$TARGET_DEFCONFIG_NAME"
+             sed -i 's/CONFIG_DEFAULT_DEVICE_TREE=.*/CONFIG_DEFAULT_DEVICE_TREE="'"$TARGET_DTS_NAME"'"/' "$ATF_PATH/configs/$TARGET_DEFCONFIG_NAME" 2>/dev/null || true
+          fi
 
           # -------------------------------------------------------
-          # 3. 强制生成匹配的 DTS 文件 (解决编译报错的核心)
+          # 3. 强力准备 DTS 文件
           # -------------------------------------------------------
-          # Defconfig 里写死了 CONFIG_DEFAULT_DEVICE_TREE="mt7981-cmcc-rax3000me-an8855"
-          # 所以我们必须生成一个叫这个名字的 DTS 文件
-          REQUIRED_DTS_NAME="mt7981-cmcc-rax3000me-an8855"
-          TARGET_DTS_PATH="$UBOOT_PATH/arch/arm/dts/$REQUIRED_DTS_NAME.dts"
+          TARGET_DTS_PATH="$UBOOT_PATH/arch/arm/dts/$TARGET_DTS_NAME.dts"
           
-          echo "🔨 Preparing DTS file: $REQUIRED_DTS_NAME.dts"
+          echo "🔨 Preparing DTS file: $TARGET_DTS_NAME.dts"
           
-          # 尝试找一个现成的类似 DTS 复制过去
-          SRC_DTS=$(find ./wrt -type f -name "*rax3000me*an8855*.dts" | head -n 1)
+          # 尝试找源码里本来就有的 rax3000 dts
+          SRC_DTS=$(find ./wrt -type f -name "*rax3000*an8855*.dts" | head -n 1)
           
           if [ -n "$SRC_DTS" ]; then
             echo "👉 Copying content from: $SRC_DTS"
             cp -f "$SRC_DTS" "$TARGET_DTS_PATH"
           else
-            echo "⚠️ No source DTS found. Generating a GENERIC one to force build success..."
-            # 生成一个最小化可用的 DTS，防止编译器找不到文件报错
+            echo "⚠️ No source DTS found. Generating a GENERIC one to force build..."
+            # 生成一个最小化 DTS，防止报错
             cat > "$TARGET_DTS_PATH" <<EOF
           // SPDX-License-Identifier: GPL-2.0
           /dts-v1/;
@@ -142,15 +151,10 @@ jobs:
           fi
 
           # -------------------------------------------------------
-          # 4. 生成编译任务
+          # 4. 生成任务列表
           # -------------------------------------------------------
-          # 这里的 BOARD 参数对应文件名去掉 _defconfig 后的部分，或者直接硬编码
-          # 注意：build.sh 会去 configs/ 目录下找 <SOC>_<BOARD>_defconfig
-          # 所以我们必须保证 BOARD 参数和文件名能对上
-          
-          # 文件名: mt7981_rax3000me_an8855_defconfig
-          # 拆解 -> SOC=mt7981, BOARD=rax3000me_an8855
-          
+          # 此时我们确保了 configs/ 下有名为 mt7981_rax3000me_an8855_defconfig 的文件
+          # 所以参数必须严格对应文件名
           echo "SOC=mt7981 BOARD=rax3000me_an8855 ./build.sh" > ./Uboots.txt
           
           echo "WRT_TYPE_7981=RAX3000ME-AN8855" >> $GITHUB_ENV
@@ -158,6 +162,7 @@ jobs:
           chmod +x Uboots.sh
           
           echo "=== Debug: Preparation Complete ==="
+
 
 
       - name: Compile Firmware
