@@ -80,7 +80,7 @@ jobs:
           # 🟢【调试新增】检查关键的 DTS 文件是否存在，并打印内容
           # -------------------------------------------------------
           echo "=== Debug: Checking DTS file status ==="
-          TARGET_DTS="./wrt/uboot-mtk-20230718-09eda825/arch/arm/dts/mt7981-rax3000me-an8855.dts"
+          TARGET_DTS="./wrt/uboot-mtk-20230718-09eda825/arch/arm/dts/mt7981-cmcc-rax3000me-an8855.dts"
           
           if [ -f "$TARGET_DTS" ]; then
             echo "✅ DTS file exists: $TARGET_DTS"
@@ -93,7 +93,7 @@ jobs:
             cat > "$TARGET_DTS" <<EOF
           // SPDX-License-Identifier: GPL-2.0
           /dts-v1/;
-          #include "mt7981-cmcc-rax3000m-emmc.dts"
+          #include "mt7981-cmcc-rax3000m.dts"
           / {
             model = "mt7981-cmcc-rax3000me-an8855";
           };
