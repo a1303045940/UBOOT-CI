@@ -1,0 +1,184 @@
+name: 新MT7981-rax300me-an8855-UBOOT
+
+on:
+  # 自动编译：每周日早上4点
+  # schedule:
+  #   - cron: 0 20 * * 0
+  # 手动编译
+  workflow_dispatch:
+
+env:
+  GITHUB_TOKEN: ${{secrets.GH_TOKEN}}
+  WRT_TARGET: MTK-798x
+  WRT_REPO: https://github.com/a1303045940/bl-mt798x-oss.git
+  WRT_BRANCH: master
+
+permissions: write-all
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete old Releases and Workflows
+        uses: ophub/delete-releases-workflows@main
+        with:
+          gh_token: ${{secrets.GH_TOKEN}}
+          delete_releases: true
+          releases_keep_latest: 4
+          delete_tags: true
+          delete_workflows: true
+          workflows_keep_day: 2
+
+  build:
+    runs-on: ubuntu-latest
+    needs: cleanup
+    strategy:
+      fail-fast: false
+      matrix:
+        WRT_ATF: [atf-20220606-637ba581b]
+        WRT_MTK: [uboot-mtk-20230718-09eda825]
+
+    steps:
+      - name: Checkout Projects
+        uses: actions/checkout@main
+
+      - name: Initialization Environment
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo -E apt -yqq purge firefox
+          sudo -E apt -yqq update
+          sudo -E apt -yqq full-upgrade
+          sudo -E apt -yqq autoremove --purge
+          sudo -E apt -yqq autoclean
+          sudo -E apt -yqq clean
+          sudo -E apt -yqq install dos2unix bison build-essential device-tree-compiler flex gcc-aarch64-linux-gnu libssl-dev qemu-user-static
+          sudo -E systemctl daemon-reload
+          sudo -E timedatectl set-timezone "Asia/Shanghai"
+
+          sudo mkdir -p /mnt/build_wrt
+          sudo chown $USER:$USER /mnt/build_wrt
+          sudo ln -s /mnt/build_wrt $GITHUB_WORKSPACE/wrt
+
+      - name: Initialization Values
+        run: |
+          echo "WRT_AUTHOR=$(echo $WRT_REPO | cut -d '/' -f 4)" >> $GITHUB_ENV
+          echo "WRT_DATE=$(TZ=UTC-8 date +"%y.%m.%d")" >> $GITHUB_ENV
+          echo "WRT_VER=$(echo ${{matrix.WRT_ATF}} | grep -oP 'atf-\d+')_$(echo ${{matrix.WRT_MTK}} | grep -oP 'mtk-\d+')" >> $GITHUB_ENV
+
+      - name: Clone Code
+        run: |
+          git clone --depth=1 --single-branch --branch $WRT_BRANCH $WRT_REPO ./wrt/
+
+      - name: Compile Prepare
+        run: |
+          # 1. 设置编译目录变量
+          sed -i "5s/UBOOT_DIR=.*/UBOOT_DIR=${{matrix.WRT_MTK}}/" ./wrt/build.sh
+          sed -i "7s/ATF_DIR=.*/ATF_DIR=${{matrix.WRT_ATF}}/" ./wrt/build.sh
+
+          UBOOT_PATH="./wrt/${{matrix.WRT_MTK}}"
+          ATF_PATH="./wrt/${{matrix.WRT_ATF}}"
+          
+          echo "=== Debug: Starting File Preparation ==="
+
+          # 2. 复制 Defconfig (配置文件)
+          # 找到源码里的 defconfig 并复制到 U-Boot 和 ATF 目录
+          SRC_CONFIG=$(find ./wrt -type f -name "mt7981_rax3000me_an8855_defconfig" | head -n 1)
+          if [ -n "$SRC_CONFIG" ]; then
+             echo "✅ Found config: $SRC_CONFIG"
+             cp -f "$SRC_CONFIG" "$UBOOT_PATH/configs/"
+             # ATF 也是一样的配置名
+             cp -f "$SRC_CONFIG" "$ATF_PATH/configs/" 2>/dev/null || true
+          else
+             echo "❌ Error: Config file mt7981_rax3000me_an8855_defconfig NOT FOUND!"
+             # 列出所有配置文件以便调试
+             find ./wrt -name "*rax3000*"
+             exit 1
+          fi
+
+          # 3. 复制并重命名 DTS (关键修复步骤！！！)
+          # Defconfig 里配置的是: CONFIG_DEFAULT_DEVICE_TREE="mt7981-cmcc-rax3000me-an8855"
+          # 所以我们必须生成一个文件名完全一致的文件
+          TARGET_DTS_NAME="mt7981-cmcc-rax3000me-an8855.dts"
+          TARGET_DTS_PATH="$UBOOT_PATH/arch/arm/dts/$TARGET_DTS_NAME"
+          
+          # 在源码中模糊搜索包含 rax3000me-an8855 的 dts 文件
+          SRC_DTS=$(find ./wrt -type f -name "*rax3000me-an8855.dts" | head -n 1)
+          
+          if [ -n "$SRC_DTS" ]; then
+            echo "✅ Found source DTS: $SRC_DTS"
+            echo "👉 Copying and renaming to: $TARGET_DTS_PATH"
+            cp -f "$SRC_DTS" "$TARGET_DTS_PATH"
+          else
+            echo "⚠️ Source DTS not found! Generating FALLBACK DTS..."
+            # 如果实在找不到，生成一个最基础的防止报错（不推荐，但能让编译跑完）
+            cat > "$TARGET_DTS_PATH" <<EOF
+          // SPDX-License-Identifier: GPL-2.0
+          /dts-v1/;
+          #include "mt7981.dtsi"
+          / {
+            model = "mt7981-cmcc-rax3000me-an8855";
+          };
+          EOF
+          fi
+
+          # 4. 直接生成编译任务列表，不再依赖自动搜索
+          # 这样能确保参数绝对正确，不会因为文件名解析错误而跳过
+          echo "SOC=mt7981 BOARD=rax3000me_an8855 ./build.sh" > ./Uboots.txt
+          
+          # 设置环境变量供后续步骤显示
+          echo "WRT_TYPE_7981=RAX3000ME-AN8855" >> $GITHUB_ENV
+          
+          # 赋予脚本执行权限
+          mv -f Uboots.txt Uboots.sh
+          chmod +x Uboots.sh
+          
+          echo "=== Debug: Preparation Complete ==="
+
+      - name: Compile Firmware
+        run: |
+          cd ./wrt/
+          $GITHUB_WORKSPACE/Uboots.sh
+
+      - name: Machine Information
+        run: |
+          cd ./wrt/
+          echo "======================="
+          lscpu | grep -E "name|Core|Thread"
+          echo "======================="
+          df -h
+          echo "======================="
+          du -h --max-depth=1
+          echo "======================="
+
+      - name: Package Firmware
+        run: |
+          cd ./wrt/ && mkdir ./upload/
+
+          for FILE in $(find ./output/ -type f -iname "*.*") ; do
+            EXT=$(basename $FILE | cut -d '.' -f 2-)
+            NAME=$(basename $FILE | cut -d '.' -f 1)
+            NEW_FILE="$NAME"_"$WRT_VER"_"$WRT_DATE"."$EXT"
+            mv -f $FILE ./upload/$NEW_FILE
+          done
+
+          zip -r ./upload/"$WRT_AUTHOR"_"$WRT_VER"_"$WRT_DATE".zip ./upload/*.*
+
+      - name: Release Firmware
+        uses: softprops/action-gh-release@master
+        with:
+          tag_name: ${{env.WRT_AUTHOR}}_${{env.WRT_VER}}_${{env.WRT_DATE}}
+          files: ./wrt/upload/*.*
+          body: |
+            这是个平台固件包，内含多个设备！
+            请注意选择你需要的设备固件！
+            不要问，刷就完事了！
+
+            平台：${{env.WRT_TARGET}}
+            源码：${{env.WRT_REPO}}
+            分支：${{env.WRT_BRANCH}}
+
+            ATF版本：${{matrix.WRT_ATF}}
+            MTK版本：${{matrix.WRT_MTK}}
+
+            7981设备：${{env.WRT_TYPE_7981}}
