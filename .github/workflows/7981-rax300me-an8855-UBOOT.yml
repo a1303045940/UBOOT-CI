@@ -97,7 +97,7 @@ jobs:
             fi
           # 【修正点】使用宽泛匹配 'rax3000'，确保能命中文件
           # 务必不要用 explicit 的全名，除非你确定它在 'Debug' 输出里存在
-          done < <(find ./wrt/uboot-mtk-*/configs -type f -name 'mt798*defconfig' | grep -i 'rax3000')
+          done < <(find ./wrt/uboot-mtk-*/configs -type f -name 'mt798*defconfig' | grep -i 'rax3000me_an8855')
           
           # 【调试检查】如果 map 为空，直接报错退出，不要假装成功
           if [ ${#lines_map[@]} -eq 0 ]; then
