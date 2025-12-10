@@ -55,6 +55,7 @@ jobs:
 
       - name: Initialization Values
         run: |
+          sed -i '/^TF_LDFLAGS\s*+=.*--fatal-warnings/a TF_LDFLAGS += -Wl,--no-warn-rwx-segments' "$ATF_PATH/Makefile"
           echo "WRT_AUTHOR=$(echo $WRT_REPO | cut -d '/' -f 4)" >> $GITHUB_ENV
           echo "WRT_DATE=$(TZ=UTC-8 date +"%y.%m.%d")" >> $GITHUB_ENV
           echo "WRT_VER=$(echo ${{matrix.WRT_ATF}} | grep -oP 'atf-\d+')_$(echo ${{matrix.WRT_MTK}} | grep -oP 'mtk-\d+')" >> $GITHUB_ENV
