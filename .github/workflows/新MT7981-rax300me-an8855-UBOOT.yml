@@ -1,4 +1,4 @@
-name: 新7981-rax300me-an8855-UBOOT
+name: 新mt7981-rax300me-an8855-UBOOT
 
 on:
   workflow_dispatch:
@@ -13,7 +13,7 @@ permissions: write-all
 
 jobs:
   cleanup:
-    runs-on: ubuntu-22.04  # 使用 22.04，不会卡队列
+    runs-on: ubuntu-22.04
     steps:
       - name: Delete old Releases and Workflows
         uses: ophub/delete-releases-workflows@main
@@ -26,7 +26,7 @@ jobs:
           workflows_keep_day: 2
 
   build:
-    runs-on: ubuntu-22.04  # 使用 22.04
+    runs-on: ubuntu-22.04
     needs: cleanup
     strategy:
       fail-fast: false
@@ -43,13 +43,8 @@ jobs:
           DEBIAN_FRONTEND: noninteractive
         run: |
           sudo -E apt -yqq update
-          
-          # 核心修复：强制降级 binutils 到 2.34 版本（Ubuntu 20.04 的版本）
-          # 这样可以避免新版 linker 的 RWX segment 权限检查
-          sudo -E apt -yqq install dos2unix bison build-essential device-tree-compiler flex libssl-dev qemu-user-static
-          
-          # 安装旧版本的 gcc-aarch64-linux-gnu，它会自动拉取兼容的 binutils
-          sudo -E apt -yqq install gcc-aarch64-linux-gnu=4:11.2.0--1ubuntu1 binutils-aarch64-linux-gnu=2.38-4ubuntu2
+          sudo -E apt -yqq install dos2unix bison build-essential device-tree-compiler \
+                                    flex libssl-dev qemu-user-static gcc-aarch64-linux-gnu
           
           sudo -E systemctl daemon-reload
           sudo -E timedatectl set-timezone "Asia/Shanghai"
@@ -75,6 +70,14 @@ jobs:
 
           UBOOT_PATH="./wrt/${{matrix.WRT_MTK}}"
           ATF_PATH="./wrt/${{matrix.WRT_ATF}}"
+          
+          echo "=== 修复 ATF linker RWX 警告 ==="
+          # 核心修复：在 ATF Makefile 中禁用 RWX segment 警告
+          if [ -f "$ATF_PATH/Makefile" ]; then
+            # 在 TF_LDFLAGS 添加 --no-warn-rwx-segments
+            sed -i '/^TF_LDFLAGS\s*+=.*--fatal-warnings/a TF_LDFLAGS += -Wl,--no-warn-rwx-segments' "$ATF_PATH/Makefile"
+            echo "✅ ATF Makefile 已修改"
+          fi
           
           echo "=== 写入独立的 DTS 文件 ==="
           TARGET_DTS_NAME="mt7981-cmcc-rax3000me-an8855"
@@ -236,4 +239,4 @@ jobs:
           files: ./wrt/upload/*.*
           body: |
             平台固件包
-            7981设备：${{env.WRT_TYPE_7981}}
+            7981设备:${{env.WRT_TYPE_7981}}
