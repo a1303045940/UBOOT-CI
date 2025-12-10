@@ -28,7 +28,7 @@ jobs:
 
   build:
     # ！！！必须是 ubuntu-20.04，否则必报 FIP 错误 ！！！
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     needs: cleanup
     strategy:
       fail-fast: false
