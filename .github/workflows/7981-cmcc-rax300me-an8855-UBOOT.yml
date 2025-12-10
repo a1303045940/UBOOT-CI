@@ -90,7 +90,11 @@ jobs:
             elif [[ -z "${lines_map[$key]}" ]]; then
               lines_map["$key"]="SOC=$soc BOARD=$board ./build.sh"
             fi
-          done < <(find ./wrt/uboot-mtk-*/configs -type f -name 'mt798*defconfig' | grep -iE 'mt7981_' | grep -ivE 'rfb|fpga')
+          # ================= 修改开始 =================
+          # 原代码：grep -iE 'mt7981_' | grep -ivE 'rfb|fpga'
+          # 修改为：精准匹配 cmcc_rax3000me_an8855 (注意这里通常是用下划线)
+          done < <(find ./wrt/uboot-mtk-*/configs -type f -name 'mt798*defconfig' | grep -iE 'cmcc_rax3000me_an8855')
+          # ================= 修改结束 =================
 
           # 输出 Uboots.txt
           printf "%s\n" "${lines_map[@]}" | sort > ./Uboots.txt
@@ -110,7 +114,7 @@ jobs:
           find ./ -maxdepth 3 -type f -iregex ".*\(txt\|sh\)$" -exec dos2unix {} \; -exec chmod +x {} \;
 
           echo "WRT_TYPE_7981=$TYPE_7981" >> $GITHUB_ENV
-          #echo "WRT_TYPE_7986=$TYPE_7986" >> $GITHUB_ENV
+
 
       - name: Compile Firmware
         run: |
